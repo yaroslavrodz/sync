@@ -5,10 +5,7 @@ import Unit from './unit.schema';
 
 export async function create(req: Request, res: Response) {
     const { name, features } = req.body;
-    const unit = await Unit.create({
-        name,
-        features
-    });
+    const unit = await Unit.create({ name, features });
 
     res.status(200).json(unit);
 }

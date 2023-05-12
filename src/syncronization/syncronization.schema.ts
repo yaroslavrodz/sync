@@ -1,26 +1,44 @@
 import mongoose, { Schema, Document } from "mongoose";
 
-import { IConnectionModel } from "../connection/connection.shema";
 import { IFeatureModel } from "../feature/feature.schema";
 import { IUnitModel } from "../unit/unit.schema";
 
-export interface IField {
+export interface ISyncField {
     feature: IFeatureModel,
     source: string
 }
 
 export interface ISyncronization { 
     unit: IUnitModel;
-    connection: IConnectionModel;
-    fields: IField[];
+    connection: any;
+    syncFields: ISyncField[];
 }
 
 export interface ISyncronizationModel extends ISyncronization, Document { }
 
+// connection for postgres
+// {
+//     type: "Postgres";
+//     database: {
+//         config: {
+//             host: string;
+//             port: string;
+//             user: string;
+//             password: string;
+//             database: string;
+//         },
+//         table: {
+//             name: string;
+//             idColumn: string
+//         };
+//     };
+// }
+
+
 const Syncronization = new Schema({
     unit: { type: Schema.Types.ObjectId, ref: 'Unit', required: true },
-    connection: { type: Schema.Types.ObjectId, ref: 'Connection', required: true },
-    fields: [{  
+    connection: { type: Schema.Types.Mixed, required: true },
+    syncFields: [{  
         feature: { type: Schema.Types.ObjectId, ref: 'Feature', required: true },
         source: { type: String, required: true }
     }]

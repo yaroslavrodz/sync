@@ -1,100 +1,135 @@
 
 import { Request, Response } from 'express'; 
 
-import * as postgresConnectHelper from '../connection/postgres-connect.helper';
-import Syncronization, { IField, ISyncronizationModel } from './syncronization.schema'; 
-import Connection  from '../connection/connection.shema';
-import Record, { IRecord } from '../record/record.schema';
+import * as postgresConnectHelper from './postgres-connect.helper';
+import Syncronization, { ISyncronizationModel } from './syncronization.schema'; 
 import Dataset from '../dataset/dataset.schema';
+import Record from '../record/record.schema';
+import { ILocalDataset } from './local-dataset.interface';
 
 export async function create(req: Request, res: Response) {
-    const { unitId, connection, fields } = req.body;
-    const createdConnection = await Connection.create(connection);
+    const { unitId, connection, syncFields } = req.body;
 
-    const syncronization = await Syncronization.create({
+    const sync = await Syncronization.create({
         unit: unitId,
-        connection: createdConnection._id,
-        fields
+        connection,
+        syncFields
     });
 
-    res.status(200).json(syncronization);
+    res.status(200).json(sync);
 }
 
 export async function findOne(req: Request, res: Response) {
     const id = req.params.id;
-    const syncronization = await Syncronization.findById(id)
-        .populate('unit')
-        .populate('connection');
+    const sync = await Syncronization.findById(id);
 
-    res.status(200).json(syncronization);
+    res.status(200).json(sync);
+}
+
+export async function getColumns(req: Request, res: Response) {
+    try {
+        const id = req.params.id;
+        const sync = await Syncronization.findById(id);
+        const columns = await postgresConnectHelper.getTableColumns(sync); 
+    
+        res.status(200).json(columns);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json(error);
+    }
 }
 
 export async function syncronize(req: Request, res: Response) {
-    const { id } = req.body;
-    const syncronization = await Syncronization.findById(id)
-        .populate('connection');
+    try {
+        const { id } = req.body;
+        const sync = await Syncronization.findById(id);
 
-    await Dataset.deleteMany({ connection: syncronization.connection._id });
+        const sourceDatasets = await postgresConnectHelper
+            .getTableData(sync) as Object[];
 
-    const requestedColumns = syncronization.fields
-        .map(({ source }) => source);
+        const localDatasets = createLocalDatasets(sourceDatasets, sync);
 
-    const sourceDatasets = await postgresConnectHelper.getTableData(
-        syncronization.connection,
-        requestedColumns
-    ) as Object[];
+        const createdDatasets = await insertDatasets(localDatasets);
 
-    const localDatasets = createLocalDatasets(sourceDatasets, syncronization.fields);
-
-    const createdDatasets = await insertDatasets(
-        localDatasets,
-        syncronization,
-    );
-
-    res.status(200).json(createdDatasets);
+        res.status(200).json(createdDatasets);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json(error);
+    }
 }
 
-function createLocalDatasets(sourceDatasets: Object[], fields: IField[]) {
-    const localDatasets: IRecord[][] = [];
-    for (let i = 0; i < sourceDatasets.length; i++) {
-        let sourceData = sourceDatasets[i];
-        let records = [];
+function createLocalDatasets(
+    sourceDatasets: Object[],
+    sync: ISyncronizationModel
+) {
+    const localDatasets: ILocalDataset[] = [];
+    const syncFields = sync.syncFields;
+    const idColumn = sync.connection.database.table.idColumn;
+    const unitId = sync.unit._id;
+    const syncId = sync._id;
 
-        for (let j = 0; j < fields.length; j++) {
-            let field = fields[j];
-            let feature = field.feature;
-            let source = field.source;
-            let value = sourceData[source];
+    const sourceDatasetsLength = sourceDatasets.length;
+    const syncFieldsLength = syncFields.length;
+
+    for (let i = 0; i < sourceDatasetsLength; i++) {
+        const sourceDataset = sourceDatasets[i];
+        const records = [];
+
+        for (let j = 0; j < syncFieldsLength; j++) {
+            const syncField = syncFields[j];
+            const feature = syncField.feature;
+            const source = syncField.source;
+            const value = sourceDataset[source];
 
             if (value) {
-                records.push({ feature, value });
+                records.push({ value, feature });
             }
         }
-        localDatasets.push(records);
+
+        localDatasets.push({
+            unit: unitId,
+            sync: syncId,
+            sourceDatasetId: sourceDataset[idColumn],
+            records
+        });
     }
 
     return localDatasets;
 }
 
-async function insertDatasets(
-    localDatasets: IRecord[][],
-    syncronization: ISyncronizationModel,
-) {
+async function insertDatasets(localDatasets: ILocalDataset[]) {
     const datasets = [];
-    for (let i = 0; i < localDatasets.length; i++) {
-        const records = localDatasets[i];
-        
-        const createdRecords = await Record.insertMany(records);
-        const createdRecordsIds = createdRecords.map(({ _id }) => _id);
+    const localDatasetsLength = localDatasets.length;
 
-        const dataset = await Dataset.create({
-            records: createdRecordsIds,
-            unit: syncronization.unit._id,
-            connection: syncronization.connection._id,
+    for (let i = 0; i < localDatasetsLength; i++) {
+        const localDataset = localDatasets[i];
+        const records = localDataset.records;
+        const recordsLength = records.length;
+
+        let dataset = await Dataset.findOne({
+            sourceDatasetId: localDataset.sourceDatasetId
         });
+        if (!dataset) {
+            dataset = await Dataset.create(localDataset);
+        } else {
+            await Record.updateMany(
+                { dataset: dataset._id },
+                { archived: true },
+            );
+        }
+
+        const recordsToCreate = [];
+        for (let i = 0; i < recordsLength; i++) {
+            recordsToCreate.push({
+                ...records[i],
+                dataset: dataset._id
+            });
+        }
+        await Record.insertMany(recordsToCreate);
 
         datasets.push(dataset);
-    }    
+    }
+
     return datasets;
 }
 

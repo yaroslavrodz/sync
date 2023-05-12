@@ -5,10 +5,7 @@ import Feature from './feature.schema';
 
 export async function create(req: Request, res: Response) {
     const { name, type } = req.body;
-    const feature = await Feature.create({
-        name,
-        type
-    });
+    const feature = await Feature.create({ name, type });
 
     res.status(200).json(feature);
 }
