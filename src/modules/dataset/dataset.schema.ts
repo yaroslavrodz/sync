@@ -5,7 +5,7 @@ import { ISyncronizationModel } from "../syncronization/syncronization.schema";
 
 export interface IDataset { 
     unit: IUnitModel;
-    sync?: ISyncronizationModel;
+    syncronization?: ISyncronizationModel;
     sourceDatasetId?: string;
 }
 
@@ -13,7 +13,7 @@ export interface IDatasetModel extends IDataset, Document { }
 
 const Dataset = new Schema({
     unit: { type: Schema.Types.ObjectId, ref: 'Unit', required: true },
-    sync: { type: Schema.Types.ObjectId, ref: 'Syncronization', required: false },
+    syncronization: { type: Schema.Types.ObjectId, ref: 'Syncronization', required: false },
     sourceDatasetId: { type: Schema.Types.String, index: true, required: false },
 });
 

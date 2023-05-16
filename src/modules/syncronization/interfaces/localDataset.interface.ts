@@ -1,8 +1,8 @@
-import { IRecord } from "../record/record.schema";
+import { IRecord } from "../../record/record.schema";
 
 export interface ILocalDataset {
     unit: string;
-    sync: string;
+    syncronization: string;
     sourceDatasetId: string;
     records: IRecord[];
 }   

@@ -1,17 +1,17 @@
 import express from 'express';
-import * as dotenv from 'dotenv';
+import dotenv from 'dotenv';
 import mongoose from 'mongoose';
 
-import FeatureRouter from './feature/feature.router';
-import UnitRouter from './unit/unit.router';
-import DatasetRouter from './dataset/dataset.router';
-import SyncronizationRouter from './syncronization/syncronization.router';
+import UnitRouter from './modules/unit/unit.router';
+import FeatureRouter from './modules/feature/feature.router';
+import DatasetRouter from './modules/dataset/dataset.router';
+import SyncronizationRouter from './modules/syncronization/syncronization.router';
 
 const app = express();
 app.use(express.json());
 
-app.use('/feature', FeatureRouter);
 app.use('/unit', UnitRouter);
+app.use('/feature', FeatureRouter);
 app.use('/dataset', DatasetRouter);
 app.use('/syncronization', SyncronizationRouter);
 

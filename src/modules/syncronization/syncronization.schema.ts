@@ -21,11 +21,13 @@ export interface ISyncronizationModel extends ISyncronization, Document { }
 //     type: "Postgres";
 //     database: {
 //         config: {
-//             host: string;
-//             port: string;
-//             user: string;
-//             password: string;
-//             database: string;
+//             connectionString?: string; 
+// 
+//             host?: string;
+//             port?: string;
+//             user?: string;
+//             password?: string;
+//             database?: string;
 //         },
 //         table: {
 //             name: string;
@@ -33,7 +35,6 @@ export interface ISyncronizationModel extends ISyncronization, Document { }
 //         };
 //     };
 // }
-
 
 const Syncronization = new Schema({
     unit: { type: Schema.Types.ObjectId, ref: 'Unit', required: true },
