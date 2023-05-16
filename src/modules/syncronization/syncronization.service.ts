@@ -58,6 +58,11 @@ export async function syncronize(
                 offset,
             );
         }
+
+        await syncProcess.updateOne({
+            status: SyncronizationProcessStatus.COMPLETED,
+            errorMessage: null
+        })
     } catch (error) {
         await catchError(error, syncProcess);
     }
