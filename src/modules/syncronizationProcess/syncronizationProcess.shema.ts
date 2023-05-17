@@ -7,7 +7,9 @@ export interface ISyncronizationProcess {
     syncronization: ISyncronizationModel
     status: SyncronizationProcessStatus;
     datasetsCount: number,
+    processedDatasetsCount: number,
     transferedDatasetsCount: number,
+    log: string[];
     attempts: number;
     errorMessage: string,
 }
@@ -22,7 +24,9 @@ const SyncronizationProcess = new Schema({
         default: SyncronizationProcessStatus.PENDING
     },
     datasetsCount: { type: Number, default: 0 },
+    processedDatasetsCount: { type: Number, default: 0 },
     transferedDatasetsCount: { type: Number, default: 0 },
+    log: [{ type: String }],
     attempts: { type: Number, default: 1 },
     errorMessage: { type: String, required: false },
 });

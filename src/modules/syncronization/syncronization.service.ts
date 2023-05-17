@@ -2,9 +2,12 @@ import * as postgresService from '../../services/postgres/postgres.service';
 import Syncronization, { ISyncField, ISyncronizationModel } from './syncronization.schema'; 
 import SyncronizationProcess, { ISyncronizationProcessModel } from '../syncronizationProcess/syncronizationProcess.shema';
 import { SyncronizationProcessStatus } from '../syncronizationProcess/interaces/syncronizationProcessStatus.enum';
+import { IFeatureModel } from '../feature/feature.schema';
 import Dataset from '../dataset/dataset.schema';
-import Record, { IRecord } from '../record/record.schema';
+import Record from '../record/record.schema';
 import { ILocalDataset } from './interfaces/localDataset.interface';
+import { ILocalRecord } from './interfaces/localRecord.interface';
+import { FeatureType } from '../feature/interfaces/featureType.enum';
 
 const LIMIT = 100;
 const MAX_ATTEMPTS = 5;
@@ -36,19 +39,19 @@ export async function syncronize(
         processId
     );
     try {
-        const syncFields = sync.syncFields;
         const databaseConfig = sync.connection.database.config;
         const tableName = sync.connection.database.table.name;
         const tableIdColumn = sync.connection.database.table.idColumn;
+        const syncFields = sync.syncFields;
 
         const requestedColumns = createRequestedColumns(syncFields, tableIdColumn);
+        const datasetsCount = await postgresService.getTableDataCount(
+            databaseConfig,
+            tableName
+        );
+        await syncProcess.updateOne({ datasetsCount });
 
-        const datasetsCount = await postgresService
-            .getTableDataCount(databaseConfig, tableName);
-        
-        await syncProcess.updateOne({ datasetsCount })
-
-        let offset = syncProcess.transferedDatasetsCount;
+        let offset = syncProcess.processedDatasetsCount;
         for (; offset < datasetsCount; offset += LIMIT) {
             await tranferDatasets(
                 sync,
@@ -62,7 +65,7 @@ export async function syncronize(
         await syncProcess.updateOne({
             status: SyncronizationProcessStatus.COMPLETED,
             errorMessage: null
-        })
+        });
     } catch (error) {
         await catchError(error, syncProcess);
     }
@@ -71,11 +74,17 @@ export async function syncronize(
 async function getSyncronizationAndProcess(syncronizationId?: string, processsId?: string) {
     if (processsId) {
         const syncProcess = await SyncronizationProcess.findById(processsId);
-        const sync = await Syncronization.findById(syncProcess.syncronization);
+        const sync = await Syncronization
+            .findById(syncProcess.syncronization)
+            .populate({ path: "syncFields.feature"});
         return { sync, syncProcess }
     } else {
-        const sync = await Syncronization.findById(syncronizationId);
-        const syncProcess = await SyncronizationProcess.create({ syncronization: sync._id })
+        const sync = await Syncronization
+            .findById(syncronizationId)
+            .populate({ path: "syncFields.feature"});
+        const syncProcess = await SyncronizationProcess.create({
+            syncronization: sync._id
+        });
         return { sync, syncProcess }
     }
 }
@@ -85,7 +94,6 @@ function createRequestedColumns(syncFields: ISyncField[], tableIdColumn: string)
     if (!requestedColumns.includes(tableIdColumn)) {
         requestedColumns.push(tableIdColumn);
     }
-
     return requestedColumns;
 }
 
@@ -101,18 +109,22 @@ async function tranferDatasets(
         requestedColumns,
         limit,
         offset
-    )
+    );
 
-    const datasetsToCreate = createLocalDatasets(
+    const localDatasets = await createLocalDatasets(
         sync,
+        syncProcess,
         sourceDatasets,
     );
 
-    await insertDatasets(datasetsToCreate);
+    await insertDatasets(localDatasets);
     
     await syncProcess.updateOne({
         attempts: 0,
-        $inc: { transferedDatasetsCount: datasetsToCreate.length }
+        $inc: {
+            processedDatasetsCount: sourceDatasets.length,
+            transferedDatasetsCount: localDatasets.length
+        }
     });
 }
 
@@ -139,14 +151,16 @@ async function getSourceDatasets(
                 remainingLimit,
                 offset
             );
-            validDatasets.push(...rows);
+            
             if (rows.length < remainingLimit) {
+                validDatasets.push(...rows);
                 break;
+            } else {
+                validDatasets.push(...rows);
+                processedDatasets += rows.length;
+                remainingLimit = datasetsToProcess - processedDatasets;
+                offset += rows.length;
             }
-
-            processedDatasets += rows.length;
-            remainingLimit = datasetsToProcess - processedDatasets;
-            offset += rows.length;
         } catch (error) {
             if (remainingLimit === 1) {
                 //We found an invalid dataset
@@ -162,40 +176,90 @@ async function getSourceDatasets(
     return validDatasets;
 }
 
-function createLocalDatasets(
+async function createLocalDatasets(
     sync: ISyncronizationModel,
+    syncProcess: ISyncronizationProcessModel,
     sourceDatasets: Object[],
 ) {
-    try {
-        const syncId = sync._id;
-        const unitId = sync.unit._id;
-        const syncFields = sync.syncFields;
-        const tableIdColumn = sync.connection.database.table.idColumn;
+    const syncId = sync._id;
+    const unitId = sync.unit._id;
+    const syncFields = sync.syncFields;
+    const tableIdColumn = sync.connection.database.table.idColumn;
 
-        const localDatasets = sourceDatasets.map((sourceDataset) => {
-            const records = createLocalRecords(syncFields, sourceDataset);
+    const localDatasets: ILocalDataset[] = [];
+    sourceDatasets.forEach(async (sourceDataset) => {
+        try {
             const sourceDatasetId = sourceDataset[tableIdColumn];
-        
-            return {
+            if (sourceDatasetId === null) {
+
+                throw new Error('Null value inside id column');
+            }
+
+            const records = createLocalRecords(syncFields, sourceDataset);
+            
+            localDatasets.push({
                 unit: unitId,
                 syncronization: syncId,
                 sourceDatasetId,
                 records
-            };
-        }) as ILocalDataset[];
+            });
+        } catch (error) {
+            await syncProcess.updateOne({
+                $push: {
+                    log: `Cannot parse dataset: '${JSON.stringify(sourceDataset)}', Error: '${error}'`
+                }
+            });
+        }
+    });
 
-        return localDatasets;
-    } catch (error) {
-        console.error(error);
-        throw new Error('Error while parsing');
-    }
+    return localDatasets;
 }
 
 function createLocalRecords(syncFields: ISyncField[], sourceDataset: Object) {
-    return syncFields.map(({ feature, source }) => {
-      const value = sourceDataset[source];
-      return { value, feature };
-    });
+    try {
+        const localRecords: ILocalRecord[] = [];
+        syncFields.forEach(({ feature, source, required }) => {
+            const value = sourceDataset[source];
+
+            if (required && value === null) {
+                throw new Error('Missing required value for record')
+            } else if (!required && value === null) {
+                return;
+            } else {
+                const parsedValue = parseValue(feature, value);
+                localRecords.push({
+                    value: parsedValue,
+                    feature: feature._id
+                });
+            }
+        });
+
+        return localRecords;
+    } catch (error) {
+        throw error;
+    }
+}
+
+function parseValue(feature: IFeatureModel, value: any) {
+    try {
+        let parsedValue;
+        switch(feature.type) {
+            case FeatureType.STRING:
+                parsedValue = String(value);
+                break;
+            case FeatureType.NUMBER:
+                parsedValue = Number(value);
+                break;
+            case FeatureType.DATE:
+                parsedValue = new Date(value);
+                break;
+            default:
+                break;
+        }
+        return parsedValue;
+    } catch (error) {
+        throw new Error('Cannot parse value for record');
+    }
 }
 
 async function insertDatasets(localDatasets: ILocalDataset[]) {
@@ -220,7 +284,7 @@ async function insertDatasets(localDatasets: ILocalDataset[]) {
         throw new Error('Error while insert');
     }
 }
- 
+
 async function archiveRecords(datasetId: string) {
     await Record.updateMany(
         { dataset: datasetId },
@@ -228,16 +292,13 @@ async function archiveRecords(datasetId: string) {
     );
 }
   
-async function insertRecords(records: IRecord[], datasetId: string) {
-    const recordsToCreate = [];
-
-    const recordsLength = records.length;
-    for (let i = 0; i < recordsLength; i++) {
-        recordsToCreate.push({
-            ...records[i],
+async function insertRecords(records: ILocalRecord[], datasetId: string) {
+    const recordsToCreate = records.map(record => {
+        return {
+            ...record,
             dataset: datasetId
-        });
-    }
+        }
+    });
     
     await Record.insertMany(recordsToCreate);
 }

@@ -4,8 +4,9 @@ import { IFeatureModel } from "../feature/feature.schema";
 import { IUnitModel } from "../unit/unit.schema";
 
 export interface ISyncField {
-    feature: IFeatureModel,
-    source: string
+    feature: IFeatureModel;
+    source: string;
+    required: boolean;
 }
 
 export interface ISyncronization { 
@@ -22,7 +23,7 @@ export interface ISyncronizationModel extends ISyncronization, Document { }
 //     database: {
 //         config: {
 //             connectionString?: string; 
-// 
+//             or  
 //             host?: string;
 //             port?: string;
 //             user?: string;
@@ -41,7 +42,8 @@ const Syncronization = new Schema({
     connection: { type: Schema.Types.Mixed, required: true },
     syncFields: [{  
         feature: { type: Schema.Types.ObjectId, ref: 'Feature', required: true },
-        source: { type: String, required: true }
+        source: { type: String, required: true },
+        required: { type: Boolean, required: true }
     }]
 });
 

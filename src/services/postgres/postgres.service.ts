@@ -10,7 +10,7 @@ export async function getTableColumns(
         await checkConnection(pool);
         const columns = await queryTableColumns(pool, tableName);
 
-        await pool.end();
+        pool.end();
         return columns;
     } catch (error) {
         throw error;
