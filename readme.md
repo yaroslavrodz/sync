@@ -17,6 +17,6 @@
 
 #### Postman link:
 ##### Open Postman, click on Import, choose 'Link' and paste the link
-##### There are requests and instructions for them in the comments section 
+##### There are requests and instructions for them in the description section 
 
     https://api.postman.com/collections/14672581-88aa5e8a-0a43-4b72-ae00-18b0d874b6f1?access_key=PMAT-01H0NHNHXP3SCJNND0Q3CW2SHJ
